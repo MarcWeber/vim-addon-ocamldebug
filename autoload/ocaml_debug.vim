@@ -1,31 +1,31 @@
-" exec vam#DefineAndBind('s:c','g:rdebug','{}')
-if !exists('g:rdebug') | let g:rdebug = {} | endif | let s:c = g:rdebug
+" exec vam#DefineAndBind('s:c','g:ocaml_debug','{}')
+if !exists('g:ocaml_debug') | let g:ocaml_debug = {} | endif | let s:c = g:ocaml_debug
 let s:c.ctxs = {}
 let s:c.next_ctx_nr = get(s:c, 'ctx_nr', 1)
 
-" You can also run /bin/sh and use require 'debug' in your ruby scripts
+" You can also run /bin/sh and use require 'debug' in your ocaml scripts
 
-fun! rdebug#Setup(...)
+fun! ocaml_debug#Setup(...)
   if a:0 > 0
     " TODO quoting?
     let cmd = join(a:000," ")
   else
-    let rdebug = search("require\\s\\+['\"]debug['\"]",'n') >= 0  ? "" : " -redebug "
-    let cmd = search('^\sdescribe\>') > 0  ? "rspec" : "ruby"
-    let cmd = input('ruby command:', cmd." ".rdebug.expand('%'))
+    let ocaml_debug = search("require\\s\\+['\"]debug['\"]",'n') >= 0  ? "" : " -redebug "
+    let cmd = 'ocamldebug -emacs'
+    let cmd = input('ocaml command:', cmd." ".ocaml_debug.expand('%'))
   endif
-  let ctx = rdebug#RubyBuffer({'buf_name' : 'RUBY_DEBUG_PROCESS', 'cmd': 'socat "EXEC:"'.shellescape(cmd).'",pty,stderr" -', 'move_last' : 1})
+  let ctx = ocaml_debug#OcamlBuffer({'buf_name' : 'OCAML_DEBUG_PROCESS', 'cmd': 'socat "EXEC:"'.shellescape(cmd).'",pty,stderr" -', 'move_last' : 1})
   let ctx.ctx_nr = s:c.next_ctx_nr
   let ctx.vim_managed_breakpoints = []
   let ctx.next_breakpoint_nr = 1
   let s:c.ctxs[s:c.next_ctx_nr] = ctx
   let s:c.active_ctx = s:c.next_ctx_nr
   let s:c.next_ctx_nr = 1
-  call RDebugMappings()
-  call rdebug#UpdateBreakPoints()
+  call OcamlDebugMappings()
+  call ocaml_debug#UpdateBreakPoints()
 endf
 
-fun! rdebug#RubyBuffer(...)
+fun! ocaml_debug#OcamlBuffer(...)
   let ctx = a:0 > 0 ? a:1 : {}
 
   fun ctx.terminated()
@@ -33,51 +33,42 @@ fun! rdebug#RubyBuffer(...)
     if has_key(self, 'curr_pos')
       unlet self.curr_pos
     endif
-    call rdebug#SetCurr()
+    call ocaml_debug#SetCurr()
   endf
 
   call async_porcelaine#LogToBuffer(ctx)
-  let ctx.receive = function('rdebug#Receive')
+  let ctx.receive = function('ocaml_debug#Receive')
   return ctx
 endf
 
-fun! rdebug#Receive(...) dict
-  call call(function('async_porcelaine#Receive2'), a:000, self)
+fun! ocaml_debug#Receive(...) dict
+  call call(function('ocaml_debug#Receive2'), a:000, self)
 endf
-fun! async_porcelaine#Receive2(...) dict
+fun! ocaml_debug#Receive2(...) dict
   let self.received_data = get(self,'received_data','').a:1
   let lines = split(self.received_data,"\n",1)
 
   let feed = []
   let s = ""
-  let m_cache = get(self,'m_cache',[])
-  let reg_rdb = '(rdb:\d'
-  let set_pos = "let self.curr_pos = {'filename':m[1], 'line': m[2]} | call rdebug#SetCurr(m[1], m[2])"
+  let set_pos = "let self.curr_pos = {'filename':m[1], 'bytepos': m[2]} | call ocaml_debug#SetCurr(m[1], m[2], m[3])"
 
   " process complete lines
   for l in lines[0:-2]
-    let m = matchlist(l, '^\([^:]\+\):\(\d\+\):')
-    if len(m) > 0 && m[1] != ''
-      let m_cache = m
-    else
-      if !empty(m_cache) && l =~ reg_rdb
-        if filereadable(m[1])
-          exec set_pos
-        endif
-      endif
+    if l =~ '^Program exit.'
+      call ocaml_debug#SetCurr()
+      break
+    endif
 
-      let m_cache = []
+    let m = matchlist(l, '^M\([^:]*\):\([^:]*\):\([^:]*\).*')
+    " without pty:
+    " let m = matchlist(l, '^(rdb:1) \([^:]\+\):\(\d\+\):')
+    if len(m) > 0 && m[1] != ''
+      if filereadable(m[1])
+        exec set_pos
+      endif
     endif
     let s .= l."\n"
   endfor
-
-  if (!empty(m_cache)) && lines[-1] =~ reg_rdb
-    " if debugger halts at "(rdb:1) " waiting for more input it will not be a
-    " ful line thus not contained in "lines". catch this case
-    exec set_pos
-    let m_cache = []
-  endif
-  let self.m_cache = m_cache
 
   " keep rest of line
   let self.received_data = lines[-1]
@@ -86,67 +77,87 @@ fun! async_porcelaine#Receive2(...) dict
     call async#DelayUntilNotDisturbing('process-pid'. self.pid, {'delay-when': ['buf-invisible:'. self.bufnr], 'fun' : self.delayed_work, 'args': [s, 1], 'self': self} )
   endif
 endf
+fun! ocaml_debug#Goto(a)
+  exec 'goto '.a:a
+  return ""
+endf
 
 " SetCurr() (no debugging active
-" SetCurr(file, line)
+" SetCurr(file, bytepos)
 " mark that line as line which will be executed next
-fun! rdebug#SetCurr(...)
-  " list of all current execution points of all known ruby processes
+fun! ocaml_debug#SetCurr(...)
+  " list of all current execution points of all known ocaml processes
   let curr_poss = []
-
-  for [k,v] in items(s:c.ctxs)
-    " process has finished? no more current lines
-    if has_key(v, 'curr_pos')
-      let cp = v.curr_pos
-      let buf_nr = bufnr(cp.filename)
-      if (buf_nr == -1)
-        exec 'sp '.fnameescape(cp.filename)
-        let buf_nr = bufnr(cp.filename)
-      endif
-      call add(curr_poss, [buf_nr, cp.line, "rdebug_current_line"])
-    endif
-    unlet k v
-  endfor
 
   " jump to new execution point
   if a:0 != 0
     call buf_utils#GotoBuf(a:1, {'create_cmd': 'sp'})
-    exec a:2
+
+    " set pos, use visual to select region
+
+    exec 'goto'.(a:3 +1)
+    let p = getpos('.')
+
+    exec 'goto '.(a:2 + 1)
+    normal v
+    call setpos('.', p)
+
+    let line = line('.')
     " exec a:2
-    " call rdebug#UpdateVarView()
+    " call ocaml_debug#UpdateVarView()
+
+
+    for [k,v] in items(s:c.ctxs)
+      " process has finished? no more current lines
+      if has_key(v, 'curr_pos')
+        let cp = v.curr_pos
+        let buf_nr = bufnr(cp.filename)
+        if (buf_nr == -1)
+          exec 'sp '.fnameescape(cp.filename)
+          let buf_nr = bufnr(cp.filename)
+        endif
+        call add(curr_poss, [buf_nr, line, "ocaml_debug_current_line"])
+      endif
+      unlet k v
+    endfor
+
   endif
-  call vim_addon_signs#Push("rdebug_current_line", curr_poss )
+  call vim_addon_signs#Push("ocaml_debug_current_line", curr_poss )
+
 endf
 
-fun! rdebug#Debugger(cmd, ...)
+fun! ocaml_debug#Debugger(cmd, ...)
   let ctx_nr = a:0 > 0 ? a:1 : s:c.active_ctx
   let ctx = s:c.ctxs[ctx_nr]
-  if a:cmd =~ '\%(step\|next\|finish\|cont\)'
+  if a:cmd =~ '\%(step\|next\|finish\|run\)'
     call ctx.write(a:cmd."\n")
     if a:cmd == 'cont'
       unlet ctx.curr_pos
-      call rdebug#SetCurr()
+      call ocaml_debug#SetCurr()
     endif
   elseif a:cmd == 'toggle_break_point'
-    call rdebug#ToggleLineBreakpoint()
+    call ocaml_debug#ToggleLineBreakpoint()
   else
     throw "unexpected command
   endif
 endf
 
 let s:auto_break_end = '== break points end =='
-fun! rdebug#BreakPointsBuffer()
+fun! ocaml_debug#BreakPointsBuffer()
   let buf_name = "XDEBUG_BREAK_POINTS_VIEW"
   let cmd = buf_utils#GotoBuf(buf_name, {'create_cmd':'sp'} )
   if cmd == 'e'
     " new buffer, set commands etc
     let s:c.var_break_buf_nr = bufnr('%')
-    noremap <buffer> <cr> :call rdebug#UpdateBreakPoints()<cr>
+    noremap <buffer> <cr> :call ocaml_debug#UpdateBreakPoints()<cr>
     call append(0,['# put the breakpoints here, prefix with # to deactivate:', s:auto_break_end
-          \ , 'rdebug supports different types of breakpoints:'
-          \ , '[file:|class:]<line|method>'
-          \ , '[class.]<line|method>'
-          \ , 'you always have to add the file / class in Vim'
+          \ , 'ocaml_debug supports different types of breakpoints:'
+          \ , 'only this syntax is supported:  file:linenum [col]'
+          \ , 'Only one breakpoint per line is supported by this file.'
+          \ , ''
+          \ , 'The "break @ module linenum [col]" command will be used.'
+          \ , 'You can add additional breakpoints manually'
+          \ , ''
           \ , 'hit <cr> to send updated breakpoints to processes'
           \ ])
     setlocal noswapfile
@@ -162,14 +173,13 @@ fun! rdebug#BreakPointsBuffer()
 endf
 
 
-fun! rdebug#UpdateBreakPoints()
+fun! ocaml_debug#UpdateBreakPoints()
   let signs = []
   let points = []
   let dict_new = {}
-  call rdebug#BreakPointsBuffer()
+  call ocaml_debug#BreakPointsBuffer()
 
-  let r_line        = '^\([^:]\+\):\(.*\)$'
-  let r_class_method     = '^\([^:]\+\)\.\([^:]\+\)$'
+  let r_line        = '^\([^:]\+\):\(.*\)\(\s\d\+\)$'
 
   for l in getline('0',line('$'))
     if l =~ s:auto_break_end | break | endif
@@ -180,29 +190,10 @@ fun! rdebug#UpdateBreakPoints()
     let m = matchlist(l, r_line)
     if !empty(m)
       let point = {}
-      if (filereadable(m[1]))
-        let point['file'] = m[1]
-      else
-        let point['class'] = m[1]
-      endif
-      " ruby does not allow numbers to be methods
-      if m[2] =~ '^\d\+$'
-        let point['line'] = m[2]
-      else
-        let point['method'] = m[2]
-      endif
-    endif
-
-    let m = matchlist(l, r_class_method)
-    if !empty(m)
-      let point = {}
-      let point['class'] = m[1]
-      " ruby does not allow numbers to be methods
-      if m[2] =~ '^\d\+$'
-        let point['line'] = m[2]
-      else
-        let point['method'] = m[2]
-      endif
+      let point['file'] = m[1]
+      let point['line'] = m[2]
+      " col is '' or ' 3' (mind the space)
+      let point['col'] = m[3]
     endif
 
     call add(points, point)
@@ -212,11 +203,11 @@ fun! rdebug#UpdateBreakPoints()
   " we only show markers for file.line like breakpoints
   for p in points
     if has_key(p, 'file') && has_key(p, 'line')
-      call add(signs, [bufnr(p.file), p.line, 'rdebug_breakpoint'])
+      call add(signs, [bufnr(p.file), p.line, 'ocaml_debug_breakpoint'])
     endif
   endfor
 
-  call vim_addon_signs#Push("rdebug_breakpoint", signs )
+  call vim_addon_signs#Push("ocaml_debug_breakpoint", signs )
 
   for ctx in values(s:c.ctxs)
     let c_ps = ctx.vim_managed_breakpoints
@@ -237,7 +228,7 @@ fun! rdebug#UpdateBreakPoints()
         if 0 == len(filter(copy(c_ps),'v:val.point == b'))
           call add(c_ps, {'point': b, 'nr': ctx.next_breakpoint_nr})
           let ctx.next_breakpoint_nr += 1
-          call ctx.write('break '. p.file .':'. p.line ."\n")
+          call ctx.write('break @ '. fnamemodify(b.file, ':r:t') .' '. (b.line -1). b.col ."\n")
         endif
       endfor
     endif
@@ -245,16 +236,17 @@ fun! rdebug#UpdateBreakPoints()
 endf
 
 
-fun! rdebug#ToggleLineBreakpoint()
+fun! ocaml_debug#ToggleLineBreakpoint()
   " yes, this implementation somehow sucks ..
   let file = expand('%')
   let line = getpos('.')[1]
+  let col = getpos('.')[2]
 
   let old_win_nr = winnr()
   let old_buf_nr = bufnr('%')
 
   if !has_key(s:c,'var_break_buf_nr')
-    call xdebug#BreakPointsBuffer()
+    call ocaml_debug#BreakPointsBuffer()
     let restore = "bufnr"
   else
     let win_nr = bufwinnr(get(s:c, 'var_break_buf_nr', -1))
@@ -271,7 +263,7 @@ fun! rdebug#ToggleLineBreakpoint()
 
   " BreakPoint buffer should be active now.
   let pattern = escape(file,'\').':'.line
-  let line = file.':'.line
+  let line = file.':'.line.' '.col
   normal gg
   let found = search(pattern,'', s:auto_break_end)
   if found > 0
@@ -281,7 +273,7 @@ fun! rdebug#ToggleLineBreakpoint()
     " add breakpoint
     call append(0, line)
   endif
-  call rdebug#UpdateBreakPoints()
+  call ocaml_debug#UpdateBreakPoints()
   if restore == 'bufnr'
     exec 'b '.old_buf_nr
   else

@@ -1,12 +1,12 @@
 {
-  "name" : "vim-addon-rdebug",
+  "name" : "vim-addon-ocamldebug",
   "author" : "Marc Weber <marco-oweber@gmx.de>",
   "maintainer" : "Marc Weber <marco-oweber@gmx.de>",
-  "repository" : {"type": "git", "url": "git://github.com/MarcWeber/vim-addon-rdebug.git"},
+  "repository" : {"type": "git", "url": "git://github.com/MarcWeber/vim-addon-ocamldebug.git"},
   "dependencies" : {
     "vim-addon-async": {},
     "vim-addon-signs": {},
     "vim-addon-mw-utils": {}
   },
-  "description" : "quick & dirty rdebug implementation"
+  "description" : "quick & dirty ocamldebug implementation"
 }

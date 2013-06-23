@@ -1,31 +1,47 @@
 Note: try [1] first and only use this plugin if you can't get ruby-debug-ide to
 work
 
-minimal rdebug debugging support based on vim-addon-async.
-
-- rspec/ruby will be suggested depending on whether the current file contains
-  "describe"
-
-- -rdebug is only suggseted as argument if the current file does not contain
-  require "rdebug" to start the debugger.
+minimal ocamldebug support for vim based on vim-addon-async.
 
 usage:
-  add require 'debug' to your ruby project, then run:
-  AsyncRubyRDebug ruby file.rb
+  AsyncOcamlDebug ocamldebug -emacs executable
 
   Then you can use F5,F6, ... to step and set breakpoints
-  (see plugin/vim-addon-rdebug.vim)
+  (see plugin/vim-addon-ocamldebug.vim)
 
   You can pass input to debug process, see documentation of vim-addon-async
 
 If something doesn't work contact me.
 
+limitations
+===========
+breakpoints with column numbers are supported, but only the line is
+highlighted, and you can add only one breakpoint per line using F9
+(you can add more manually -> [I])
+
+interfacing with the debugger [I]
+=================================
+add line to the debugger output window, select it, press <cr> (see
+vim-addon-async for details)
+
 related work
 =============
+This is a fork of github.com/MarcWeber/vim-addon-ocamldebug - and its work in progress.
 
-github.com/MarcWeber/vim-addon-ruby-debug-ide [1]
+commands: (see vim-addon-async to learn about how to send them in the
+OCAML_DEBUG_PROCESS window). Some of those have shortcuts, see plugin/vim-addon-ocamldebug.vim
 
-https://github.com/astashov/vim-ruby-debugger (fails for me stepping 20 times)
+        goto 1000
+        set arguments arg1 arg2
+        run
+        help
+        help command
+        help set variable, help show variable
+        set variable value
+        show variable
+        info subject
+
+        details see http://caml.inria.fr/pub/docs/manual-ocaml/manual030.html
 
 There are some more debugger script at www.vim.org which work with any
 commandline related debugger or can be extended to work with those.
@@ -35,7 +51,7 @@ http://www.vim.org/scripts/script.php?script_id=1703
 installation:
 =============
 
-  get github.com/MarcWeber/vim-addon-manager, and add 'vim-addon-rdebug' to the
+  get github.com/MarcWeber/vim-addon-manager, and add 'vim-addon-ocamldebug' to the
   list of plugins to be activated on startup. Read its documention.
   It also talks about alternative and references Vim's help file about what the
   old way of installing plugins was.
@@ -49,7 +65,7 @@ OR
 
 BUGS:
     - no threading support yet
-    - no support for debugging vars, but expecting vars by runing rdebug commands
+    - no support for debugging vars, but expecting vars by runing ocamldebug commands
       works (type text, visually select and hit <cr>), see vim-addon-async's
       documentation for details
     - if exception traces are logged vim sometimes interpretes them as "execution
