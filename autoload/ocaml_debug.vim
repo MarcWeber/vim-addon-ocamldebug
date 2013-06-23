@@ -228,7 +228,7 @@ fun! ocaml_debug#UpdateBreakPoints()
         if 0 == len(filter(copy(c_ps),'v:val.point == b'))
           call add(c_ps, {'point': b, 'nr': ctx.next_breakpoint_nr})
           let ctx.next_breakpoint_nr += 1
-          call ctx.write('break @ '. fnamemodify(b.file, ':r:t') .' '. (b.line -1). b.col ."\n")
+          call ctx.write('break @ '. fnamemodify(b.file, ':t:r') .' '. (b.line -1). b.col ."\n")
         endif
       endfor
     endif
