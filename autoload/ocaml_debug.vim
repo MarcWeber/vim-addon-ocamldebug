@@ -6,6 +6,11 @@ let s:c.next_ctx_nr = get(s:c, 'ctx_nr', 1)
 " You can also run /bin/sh and use require 'debug' in your ocaml scripts
 
 fun! ocaml_debug#Setup(...)
+  if  $OCAMLRUNPARAM == ''
+    " for traces:
+    let $OCAMLRUNPARAM='b'
+  endif
+
   if a:0 > 0
     " TODO quoting?
     let cmd = join(a:000," ")
@@ -144,7 +149,7 @@ endf
 
 let s:auto_break_end = '== break points end =='
 fun! ocaml_debug#BreakPointsBuffer()
-  let buf_name = "XDEBUG_BREAK_POINTS_VIEW"
+  let buf_name = "OCAML_BREAK_POINTS_VIEW"
   let cmd = buf_utils#GotoBuf(buf_name, {'create_cmd':'sp'} )
   if cmd == 'e'
     " new buffer, set commands etc
