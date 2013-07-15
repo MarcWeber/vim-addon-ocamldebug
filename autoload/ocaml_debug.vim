@@ -1,6 +1,6 @@
 " exec vam#DefineAndBind('s:c','g:ocaml_debug','{}')
 if !exists('g:ocaml_debug') | let g:ocaml_debug = {} | endif | let s:c = g:ocaml_debug
-let s:c.ctxs = {}
+let s:c.ctxs = get(s:c, 'ctxs', {})
 let s:c.next_ctx_nr = get(s:c, 'ctx_nr', 1)
 
 " You can also run /bin/sh and use require 'debug' in your ocaml scripts
@@ -11,13 +11,13 @@ fun! ocaml_debug#Setup(...)
     let $OCAMLRUNPARAM='b'
   endif
 
+  let cmd_prefix = 'ocamldebug -emacs'
   if a:0 > 0
     " TODO quoting?
-    let cmd = join(a:000," ")
+    let cmd = cmd_prefix.' '.join(a:000," ")
   else
     let ocaml_debug = search("require\\s\\+['\"]debug['\"]",'n') >= 0  ? "" : " -redebug "
-    let cmd = 'ocamldebug -emacs'
-    let cmd = input('ocaml command:', cmd." ".ocaml_debug.expand('%'))
+    let cmd = input('ocaml command:', cmd_prefix." ".ocaml_debug.expand('%'))
   endif
   let ctx = ocaml_debug#OcamlBuffer({'buf_name' : 'OCAML_DEBUG_PROCESS', 'cmd': 'socat "EXEC:"'.shellescape(cmd).'",pty,stderr" -', 'move_last' : 1})
   let ctx.ctx_nr = s:c.next_ctx_nr
@@ -82,10 +82,6 @@ fun! ocaml_debug#Receive2(...) dict
     call async#DelayUntilNotDisturbing('process-pid'. self.pid, {'delay-when': ['buf-invisible:'. self.bufnr], 'fun' : self.delayed_work, 'args': [s, 1], 'self': self} )
   endif
 endf
-fun! ocaml_debug#Goto(a)
-  exec 'goto '.a:a
-  return ""
-endf
 
 " SetCurr() (no debugging active
 " SetCurr(file, bytepos)
@@ -100,10 +96,10 @@ fun! ocaml_debug#SetCurr(...)
 
     " set pos, use visual to select region
 
-    exec 'goto'.(a:3 +1)
+    exec 'goto'.(a:2 +1)
     let p = getpos('.')
 
-    exec 'goto '.(a:2 + 1)
+    exec 'goto '.(a:3 + 1)
     normal v
     call setpos('.', p)
 
@@ -131,11 +127,12 @@ fun! ocaml_debug#SetCurr(...)
 
 endf
 
-fun! ocaml_debug#Debugger(cmd, ...)
-  let ctx_nr = a:0 > 0 ? a:1 : s:c.active_ctx
+fun! ocaml_debug#Debugger(cmd, opts)
+  let ctx_nr = get(a:opts, 'ctx_nr',  s:c.active_ctx)
+  let c = get(a:opts, 'count', 1)
   let ctx = s:c.ctxs[ctx_nr]
-  if a:cmd =~ '\%(step\|next\|finish\|run\)'
-    call ctx.write(a:cmd."\n")
+  if a:cmd =~ '\%(step\|backstep\|previous\|next\|finish\|run\)'
+    call ctx.write(a:cmd.(c != 1 ? ' '.c : '')."\n")
     if a:cmd == 'cont'
       unlet ctx.curr_pos
       call ocaml_debug#SetCurr()
@@ -155,16 +152,18 @@ fun! ocaml_debug#BreakPointsBuffer()
     " new buffer, set commands etc
     let s:c.var_break_buf_nr = bufnr('%')
     noremap <buffer> <cr> :call ocaml_debug#UpdateBreakPoints()<cr>
-    call append(0,['# put the breakpoints here, prefix with # to deactivate:', s:auto_break_end
-          \ , 'ocaml_debug supports different types of breakpoints:'
-          \ , 'only this syntax is supported:  file:linenum [col]'
-          \ , 'Only one breakpoint per line is supported by this file.'
-          \ , ''
-          \ , 'The "break @ module linenum [col]" command will be used.'
-          \ , 'You can add additional breakpoints manually'
-          \ , ''
-          \ , 'hit <cr> to send updated breakpoints to processes'
-          \ ])
+    if getline(0, 2) != ['']
+      call append(0,['# put the breakpoints here, prefix with # to deactivate:', s:auto_break_end
+            \ , 'ocaml_debug supports different types of breakpoints:'
+            \ , 'only this syntax is supported:  file:linenum [col]'
+            \ , 'Only one breakpoint per line is supported by this file.'
+            \ , ''
+            \ , 'The "break @ module linenum [col]" command will be used.'
+            \ , 'You can add additional breakpoints manually'
+            \ , ''
+            \ , 'hit <cr> to send updated breakpoints to processes'
+            \ ])
+    endif
     setlocal noswapfile
     " it may make sense storing breakpoints. So allow writing the breakpoints
     " buffer
@@ -181,7 +180,7 @@ endf
 fun! ocaml_debug#UpdateBreakPoints()
   let signs = []
   let points = []
-  let dict_new = {}
+  let dct_new = {}
   call ocaml_debug#BreakPointsBuffer()
 
   let r_line        = '^\([^:]\+\):\(.*\)\(\s\d\+\)$'
@@ -201,7 +200,10 @@ fun! ocaml_debug#UpdateBreakPoints()
       let point['col'] = m[3]
     endif
 
-    call add(points, point)
+    if exists('point')
+      call add(points, point)
+      unlet point
+    endif
   endfor
 
   " calculate markers:
@@ -278,6 +280,7 @@ fun! ocaml_debug#ToggleLineBreakpoint()
     " add breakpoint
     call append(0, line)
   endif
+  update
   call ocaml_debug#UpdateBreakPoints()
   if restore == 'bufnr'
     exec 'b '.old_buf_nr

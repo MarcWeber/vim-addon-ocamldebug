@@ -11,10 +11,12 @@ sign define ocaml_debug_breakpoint text=O   linehl=
 
 if !exists('*OcamlDebugMappings')
   fun! OcamlDebugMappings()
-     noremap <F5> :<c-u>call ocaml_debug#Debugger("step")<cr>
-     noremap <F6> :<c-u>call ocaml_debug#Debugger("next")<cr>
+     noremap <F5> :<c-u>call ocaml_debug#Debugger("step", {'count': v:count == 0 ? 1 : v:count})<cr>
+     noremap <S-F5> :<c-u>call ocaml_debug#Debugger("backstep", {'count': v:count == 0 ? 1 : v:count})<cr>
+     noremap <F6> :<c-u>call ocaml_debug#Debugger("next", {'count': v:count == 0 ? 1 : v:count})<cr>
+     noremap <S-F6> :<c-u>call ocaml_debug#Debugger("previous", {'count': v:count == 0 ? 1 : v:count})<cr>
      " noremap <F7> :<c-u>call ocaml_debug#Debugger("finish")<cr>
-     noremap <F8> :<c-u>call ocaml_debug#Debugger("run")<cr>
+     noremap <F8> :<c-u>call ocaml_debug#Debugger("run", {'count': v:count == 0 ? 1 : v:count})<cr>
      noremap <F9> :<c-u>call ocaml_debug#Debugger("toggle_break_point")<cr>
      " noremap \xv :XDbgVarView<cr>
      " vnoremap \xv y:XDbgVarView<cr>GpV<cr>
